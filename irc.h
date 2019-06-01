@@ -11,13 +11,13 @@
 #include <stdlib.h>
 
 // Prints the error in errno to the standard error stream and exits with errno.
-#define perror()\
-  fprintf(stderr, "error: %s\n", strerror(errno));	\
+#define perror(s)\
+  fprintf(stderr, "%s, error: %s\n", s,strerror(errno));	\
   exit(errno)
 #define NOSSLPORT "6667"
 
 int irc_init(char * address);
-size_t irc_send(int sockfd, char* str);
-size_t irc_recv(int sockfd, char * buff, size_t bufflen);
+size_t irc_send(int sockfd, char* buff);
+size_t irc_recv(int sockfd, char* buff, size_t bufflen);
 
 #endif

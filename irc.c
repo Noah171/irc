@@ -1,5 +1,6 @@
 #include "irc.h"
 
+// Returns sockets connected to the irc
 int irc_init(char * addr){
   
   int sockfd = -1;
@@ -13,24 +14,25 @@ int irc_init(char * addr){
   // initalize the 'results' linked list
   // Zero is the success number, so if this does not succeed then printer error and exit
   if(getaddrinfo(addr, NOSSLPORT, &hints, &results) != 0){
-    perror();
+    perror("In getaddrinfo");
   }
   // assign sockfd using the information in results acquired from getaddrinfo above.
   // Upon failure, socket returns -1, so print the error
   if((sockfd = socket(results->ai_family,
 		      results->ai_socktype,
 		      results->ai_protocol)) == -1){
-    perror();
+    perror("In socket");
   }
   // Connect using the initialized socket.
   if(connect(sockfd, results->ai_addr,
 	     results->ai_addrlen) != 0){
-    perror();
+    perror("In connect");
   }
   freeaddrinfo(results);
   return sockfd;
 }
 
+// Returns bytes sent
 size_t irc_send(int sockfd, char * str){
   
   size_t sent_len = 0;
@@ -56,10 +58,10 @@ size_t irc_send(int sockfd, char * str){
     strncpy(sent_str+cur_len, suffix, suffix_len);
     
     if((sent_len += send(sockfd, str, cur_len + suffix_len , 0)) == -1){
-      perror();
+      perror("In send");
     }
 
-    // This is required to ensuring that the entire message is sent, because the suffix
+    // This is required to ensure that the entire message is sent, because the suffix
     // length otherwise contributes to the number of characters sent, when it shouldn't
     // because the suffix isn't part of the actual message
     sent_len -= suffix_len; 
@@ -68,6 +70,7 @@ size_t irc_send(int sockfd, char * str){
   return sent_len;
 }
 
+// Returns bytes received and copies message into buffer
 size_t irc_recv(int sockfd, char * buff, size_t bufflen){
 
   int len_recvd = -1;
@@ -79,10 +82,11 @@ size_t irc_recv(int sockfd, char * buff, size_t bufflen){
   // immediately preceeds \r, we take away two from the length to replace \r with a null
   // byte. This two represents the two taken away from the length recieved from our peer.
   const short recv_real_diff = 2;
-
+  printf("lmao");
   if((len_recvd = recv(sockfd, buff, bufflen, 0)) == 0 || len_recvd == -1){
-    perror();
+    perror("In receiving");
   }
+
   len_real = len_recvd-recv_real_diff;
   buff[len_recvd-2] = '\0';
   
