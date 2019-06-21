@@ -4,34 +4,32 @@
 
 #define WINDOWHEIGHT 960
 #define WINDOWWIDTH 480
-#define LABEL_BUFFER_MAX 100
+#define LABEL_BUFFER_MAX 1000
 
-enum send_button_clicked_args{ARG_LABEL=0};
-
-static void activate(GtkApplication* app,
-		     gpointer user_data);
+static void
+activate(GtkApplication* app,
+	 gpointer user_data);
 /* Begin callback declarations */
-static void cb_send_button_clicked(GtkWidget *button,
-				gpointer callback_data);
-static void cb_update_char_box(GtkWidget* vertical_box,
-			    gpointer callback_data);
-static void cb_thread_quit(GtkWidget* window,
-			   gpointer callback_data);
+static void
+cb_send_button_clicked(GtkWidget *button,
+		       gpointer callback_data);
+static void
+cb_update_char_box(GtkWidget* vertical_box,
+		   gpointer callback_data);
 /* End callback declaration */
-static void *recv_loop(void* args);
+static void *
+recv_loop(void* args);
+static gboolean
+update_box(gpointer sick_data);
 /*
   TODO
 
-  o Scroll window adds a scroll bar to an element, it's not its own separate element. SO
-      vertical_box will be the new chat recieving widget, which will be the child of 
-      scroll_window, which is a scroll window and will therefore have a scroll bar.
-
  */
 
-static void activate(GtkApplication* app,
-		   gpointer user_data){
+int
+main(int argc, char * argv[]){
   
-
+  int sockfd = irc_init("185.30.166.37"); // This is freenode's ip 
   GtkWidget * window;
   GtkWidget * scroll_window;
   GtkWidget * grid;
@@ -39,29 +37,31 @@ static void activate(GtkApplication* app,
   GtkWidget * vertical_box;
   GtkWidget * entry;
   GtkEntryBuffer * buff;
-
-  char * buffer = malloc(LABEL_BUFFER_MAX * sizeof(char));
-  pthread_t * thread;
-  void * args = malloc(sizeof(void*) * 2);
-  ((int **)args)[0] = user_data; // Sends a pointer to the socketfd
-  ((char **)args)[1] = buffer; // sends the buffer's address to the receive thread
   
+  GThread * threaderino;
+  size_t buff_len = LABEL_BUFFER_MAX * sizeof(char);
+  void * socket_thread_arguments = malloc(sizeof(void*) * 4);
+  const char * buff_msg = "Enter message ...";
+  
+  gtk_init(&argc, &argv);
+        
   // Initialize the first window of the GTK application
   grid = gtk_grid_new();
   button = gtk_button_new_with_label("Send");
   window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-  scroll_window = gtk_scrolled_window_new(NULL,NULL);
+  scroll_window = gtk_scrolled_window_new(NULL, NULL);
   vertical_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5); // Make it a vertical box with
   // 5 pixels of spacing
-  buff = gtk_entry_buffer_new("Enter message ...",18);
+  buff = gtk_entry_buffer_new(buff_msg, strlen(buff_msg) +1);
   entry = gtk_entry_new_with_buffer(buff); // Text entry box
 
   /* Set up the window */
   gtk_window_set_title(GTK_WINDOW(window), "DeliveryClient");
-  gtk_window_set_default_size(GTK_WINDOW(window), WINDOWHEIGHT,WINDOWWIDTH);
+  gtk_window_set_default_size(GTK_WINDOW(window),
+			      WINDOWHEIGHT,WINDOWWIDTH);
   gtk_window_set_resizable(GTK_WINDOW(window),0);
   g_signal_connect(G_OBJECT(window), "destroy",
-		   G_CALLBACK(cb_thread_quit), (void*)thread);
+		   G_CALLBACK(gtk_main_quit), NULL);
 
   /* Sets up the window's grid */
   gtk_grid_set_column_homogeneous(GTK_GRID(grid), 1);
@@ -69,14 +69,11 @@ static void activate(GtkApplication* app,
 
   /* connects the send_button_clicked to the button */
   g_signal_connect(G_OBJECT(button), "clicked",
-		   G_CALLBACK(cb_send_button_clicked), (void*) vertical_box);
+		   G_CALLBACK(cb_send_button_clicked),
+		   (void*) vertical_box);
 
-  /* Connect the vertical box to the loop which receives connection */
-  /* g_signal_connect(G_OBJECT(vertical_box), "destroy", G_CALLBACK(recv_loop), */
-  /* (void*) vertical_box); */
   /* Make the vertical box a scroll window */
   gtk_container_add(GTK_CONTAINER(scroll_window), vertical_box);
-  
   /* Attach children to parent grid, order of numbers is
      <LeftDistance, TopDistance, Width, Height */
   gtk_grid_attach(GTK_GRID(grid), button, 4,3,1,1);
@@ -85,66 +82,90 @@ static void activate(GtkApplication* app,
   
   /* Attach the grid to the window */
   gtk_container_add(GTK_CONTAINER(window), grid);
+  
+  /* connects the previously declared signal to the updating function */
 
-  g_signal_new("message-recvd",
-	       G_TYPE_OBJECT,
-	       G_SIGNAL_RUN_FIRST,
-	       0,NULL,NULL,
-	       g_cclosure_marshal_VOID__POINTER,
-	       G_TYPE_NONE, 1, G_TYPE_POINTER);
+  ((int **) socket_thread_arguments)[0] = &sockfd; // Sends a pointer to the socketfd
+  ((GtkWidget **) socket_thread_arguments)[1] = vertical_box;
+  ((size_t *) socket_thread_arguments)[2] = buff_len;
+  ((GtkWidget **) socket_thread_arguments)[3] = window;
+  
+  g_thread_new("thr_socket", recv_loop, socket_thread_arguments);
 	       
-
-  
-  pthread_create(thread, NULL, recv_loop, (void*) args); 
-  g_signal_connect(G_OBJECT(vertical_box), "message-recvd",
-		   G_CALLBACK(cb_update_char_box), buffer);
-  
   gtk_widget_show_all(window);
   gtk_main();
-}
 
-int main(int argc, char * argv[]){
-  
-  int sockfd = irc_init("185.30.166.37");
-  GtkApplication * app = gtk_application_new("id.ccd", G_APPLICATION_FLAGS_NONE);
-  g_signal_connect(G_APPLICATION(app), "activate", G_CALLBACK(activate), &sockfd);
-  int status = g_application_run(G_APPLICATION(app), argc, argv);
-      
-  g_object_unref(app);
-  
-  return status;
+  free(socket_thread_arguments);
+  close(sockfd);
+  return 0;
 }
 
 // IRC receive thread main loop
-static void* recv_loop(void* args){
+static void *
+recv_loop (void* args) {
 
-  /* char * buffer = ((char**) args)[1]; */
-  /* int * sockfd_address = ((int**) args)[0]; // ONLY ADDRESSES are sent as args */
-  /* int sockfd = *sockfd_address; */
-  for(int label_count = 0; ; ++label_count){b
-  /*   /\* Wait to receive *\/ */
-    printf("|");
-  /*   irc_recv(sockfd, buffer, LABEL_BUFFER_MAX); */
-  /*   /\* Then send signal *\/ */   
-  }
+  int * sockfd_address = ((int**) args)[0]; // The sockfd comes in pointer form, and is
+  // dereferenced later
+  GtkWidget * vertical_box = ((GtkWidget **) args)[1];
+  size_t buff_len = ((size_t *) args)[2];
+  GtkWidget * window = ((GtkWidget **) args)[3];
   
+  int sockfd = *sockfd_address;
+  char * send_buff = malloc(buff_len);
+  for(int label_count = 0; ; ++label_count){
+    char * buffer= malloc(buff_len);
+    /* Wait to receive */
+    irc_recv(sockfd, buffer, LABEL_BUFFER_MAX);
+
+    void * args = malloc(sizeof(void *) * 3);
+    ((GtkWidget **) args)[0] = vertical_box;
+    strncpy( send_buff, buffer, buff_len);
+    ((char **) args)[1] = send_buff;
+    ((GtkWidget **) args)[2] = window;
+    
+    g_main_context_invoke (NULL, update_box, args);
+    
+    
+    free(buffer);
+  } 
+  free(send_buff);
   return NULL;
 }
 
+static gboolean
+update_box(gpointer sick_data){
+  
+  GtkWidget * v_box = ((GtkWidget **)sick_data)[0];
+  char * str = ((char **) sick_data)[1];
+  GtkWidget * window = ((GtkWidget **) sick_data)[2];
+  
+  GtkWidget * label;
+    
+  label = gtk_label_new(str);
+  //gtk_label_set_xalign(GTK_LABEL(label), 0.0);
+  
+  gtk_container_add(GTK_CONTAINER(v_box), label);
+  gtk_widget_show_all(window);
+
+  // THE DATA MUST BE FREE'd HERE because while multithreading, there is no guarentee
+  // that the data will be free'd before it is used here
+  free(sick_data);
+  return 0;
+}
+
 // Callback function for clicking the send button
-static void cb_send_button_clicked(GtkWidget* button, gpointer callback_data){
-  
-  
-}
-
-static void cb_update_char_box(GtkWidget * verical_box,
-			       gpointer callback_data){
+static void
+cb_send_button_clicked(GtkWidget* button, gpointer callback_data){
   
 }
 
-static void cb_thread_quit(GtkWidget* window,
-			   gpointer callback_data){
-  pthread_t * thread = callback_data;
-  pthread_cancel(*thread);
-  gtk_main_quit();
-}
+/* static void */
+/* cb_update_char_box(GtkWidget * vertical_box, */
+/* 			       gpointer callback_data){ */
+/*   char * buffer = ((char**)callback_data)[0]; */
+/*   GtkWidget * label; */
+  
+/*   label = gtk_label_new(callback_data); */
+/*   gtk_container_add(GTK_CONTAINER(vertical_box), label); */
+ 
+/* } */
