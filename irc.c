@@ -12,7 +12,8 @@ int irc_init(char * addr){
   hints.ai_socktype = SOCK_STREAM;
 
   for( int port = 6660; port <=6670; ++port){
-    char str_port[4];
+    const int port_len = 5;
+    char str_port[port_len];
     sprintf(str_port, "%d", port); // The port is needed in string format
     // initalize the 'results' linked list
     // Zero is the success number, so if this does not succeed then printer error and exit
@@ -34,35 +35,39 @@ int irc_init(char * addr){
     }
     freeaddrinfo(results);
   }
+  
   return sockfd;
 }
 
 // Returns bytes sent
 size_t irc_send(int sockfd, char * str){
   
-  size_t sent_len = 0;
-  size_t str_len = strlen(str);
+  const char* suffix = "\r\n";
+  const size_t suffix_len = strlen(suffix);
+  int sent_len = 0;
+  int str_len = strlen(str);
+  int final_sent_len = -1;
 
   // Because send does not guarentee that the entire message is sent at once, the amount
   // of data sent from the requested string is returned, it is up to us to return the
   /* rest. */
-  do{
-    const char* suffix = "\r\n";
-    const size_t suffix_len = strlen(suffix);
+  do {
+    
     // Give the address of where the unsent string begins (on first iteration will be the
-    // string's beginning)
-    size_t cur_len = strlen(str+sent_len);
+    // string's beginning, index 0)
+    char * unsent_string_start = str+sent_len;
+    size_t unsent_string_length = strlen(unsent_string_start);
     
-    // The +suffix_len leave room for the
-    // suffix.    
-    char * sent_str = malloc(cur_len+suffix_len);
-    
+    char * send_str = malloc(BUFF_LEN);
+    bzero(send_str, BUFF_LEN);
     // Construct the string of the message plus the suffix. str + sent_len and sent_str +
     // cur_len give the DESIRED ADDRESSES, because str[sent_len] gives *(str + sent_len)
-    strncpy(sent_str, str + sent_len, cur_len);
-    strncpy(sent_str+cur_len, suffix, suffix_len);
+    strncpy(send_str, unsent_string_start, BUFF_LEN);
+    strncpy(send_str + unsent_string_length, suffix, BUFF_LEN);
     
-    if((sent_len += send(sockfd, str, cur_len + suffix_len , 0)) == -1){
+    // The final length of the string to send being assigned. Declared at function top.
+    final_sent_len = unsent_string_length + suffix_len;
+    if((sent_len += send(sockfd, send_str, final_sent_len, 0)) == -1){
       perror("In send");
     }
 
